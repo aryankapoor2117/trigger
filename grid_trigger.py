@@ -1,13 +1,20 @@
-from typing import Any
-import httpx
-from mcp.server.fastmcp import FastMCP
 import mido
 from mido import Message
 import time
 
-# Initialize FastMCP server
-mcp = FastMCP("weather")
-output_port = mido.open_output('loopMIDI Port 2') 
+# Open the output port to communicate with FL Studio
+# Replace with your port name - you may need to check available ports
+port_name = 'loopMIDI Port 2'  # Mac default
+# port_name = 'FL STUDIO MIDI' # Common Windows name
+
+try:
+    output_port = mido.open_output(port_name)
+    print(f"Successfully connected to {port_name}")
+except Exception as e:
+    print(f"Failed to connect to {port_name}: {str(e)}")
+    print("Available ports:")
+    print(mido.get_output_names())
+    exit(1)
 
 # MIDI Note mappings for FL Studio commands
 NOTE_PLAY = 60          # C3
@@ -22,7 +29,7 @@ NOTE_NAME_CHANNEL = 68  # G#3
 NOTE_ADD_NOTE = 69      # A3
 NOTE_ADD_TO_PLAYLIST = 70  # A#3
 NOTE_SET_PATTERN_LEN = 71  # B3
-NOTE_CHANGE_TEMPO = 72 
+NOTE_CHANGE_TEMPO = 72
 
 # Define custom MIDI CC messages for direct step sequencer grid control
 CC_SELECT_CHANNEL = 100  # Select which channel to edit
@@ -37,118 +44,7 @@ CLAP = 39      # D#1
 CLOSED_HAT = 42  # F#1
 OPEN_HAT = 46  # A#1
 
-
-
-@mcp.tool()
-def list_midi_ports():
-    """List all available MIDI input ports"""
-    print("\nAvailable MIDI Input Ports:")
-    input_ports = mido.get_output_names()
-    if not input_ports:
-        print("  No MIDI input ports found")
-    else:
-        for i, port in enumerate(input_ports):
-            print(f"  {i}: {port}")
-    
-    return input_ports
-
-@mcp.tool()
-def play():
-    """Send MIDI message to start playback in FL Studio"""
-    # Send Note On for C3 (note 60)
-    output_port.send(mido.Message('note_on', note=60, velocity=100))
-    time.sleep(0.1)  # Small delay
-    output_port.send(mido.Message('note_off', note=60, velocity=0))
-    print("Sent Play command")
-
-@mcp.tool()
-def stop():
-    """Send MIDI message to stop playback in FL Studio"""
-    # Send Note On for C#3 (note 61)
-    output_port.send(mido.Message('note_on', note=61, velocity=100))
-    time.sleep(0.1)  # Small delay
-    output_port.send(mido.Message('note_off', note=61, velocity=0))
-    print("Sent Stop command")
-
-def int_to_midi_bytes(value):
-    """
-    Convert an integer value into an array of MIDI-compatible bytes (7-bit values)
-    
-    Args:
-        value (int): The integer value to convert
-        
-    Returns:
-        list: Array of MIDI bytes (each 0-127)
-    """
-    if value < 0:
-        print("Warning: Negative values not supported, converting to positive")
-        value = abs(value)
-    
-    # Special case for zero
-    if value == 0:
-        return [0]
-    
-    # Convert to MIDI bytes (7-bit values, MSB first)
-    midi_bytes = []
-    while value > 0:
-        # Extract the lowest 7 bits and prepend to array
-        midi_bytes.insert(0, value & 0x7F)  # 0x7F = 127 (binary: 01111111)
-        # Shift right by 7 bits
-        value >>= 7
-    
-    return midi_bytes
-
-@mcp.tool()
-def change_tempo(bpm):
-    """
-    Change the tempo in FL Studio using a sequence of MIDI notes
-    
-    This function converts a BPM value to an array of MIDI notes,
-    sends a start marker, the notes, and an end marker to trigger
-    a tempo change in FL Studio.
-    
-    Args:
-        bpm (float): The desired tempo in beats per minute
-    """
-    # Ensure BPM is within a reasonable range
-    if bpm < 20 or bpm > 999:
-        print(f"Warning: BPM value {bpm} is outside normal range (20-999)")
-        bpm = max(20, min(bpm, 999))
-    
-    # Convert BPM to integer
-    bpm_int = int(bpm)
-    
-    # Convert to MIDI bytes
-    midi_notes = int_to_midi_bytes(bpm_int)
-    
-    print(f"Setting tempo to {bpm_int} BPM using note array: {midi_notes}")
-    
-    # Send start marker (note 72)
-    send_midi_note(72)
-    time.sleep(0.2)
-    
-    # Send each note in the array
-    for note in midi_notes:
-        send_midi_note(note)
-        time.sleep(0.1)
-    
-    # Send end marker (note 73)
-    send_midi_note(73)
-    time.sleep(0.2)
-    
-    print(f"Tempo change to {bpm_int} BPM sent successfully using {len(midi_notes)} notes")
-
-@mcp.tool()
-def record():
-    """Send MIDI message to start recording in FL Studio"""
-    # Send Note On for D3 (note 62)
-    output_port.send(mido.Message('note_on', note=62, velocity=100))
-    time.sleep(0.1)  # Small delay
-    output_port.send(mido.Message('note_off', note=62, velocity=0))
-    print("Sent Record command")
-
 # Send a MIDI note message
-@mcp.tool()
 def send_midi_note(note, velocity=100, duration=0.1):
     """Send a MIDI note on/off message with specified duration"""
     note_on = Message('note_on', note=note, velocity=velocity)
@@ -161,7 +57,6 @@ def send_midi_note(note, velocity=100, duration=0.1):
     time.sleep(0.1)  # Small pause between messages
 
 # Send a MIDI CC message
-@mcp.tool()
 def send_midi_cc(control, value, channel=0):
     """Send a MIDI Control Change message"""
     if value > 127:
@@ -172,8 +67,50 @@ def send_midi_cc(control, value, channel=0):
     print(f"Sent CC: control={control}, value={value}")
     time.sleep(0.1)  # Small pause between messages
 
+def change_tempo(bpm):
+    """
+    Change the FL Studio tempo to the specified BPM value
+    
+    Args:
+        bpm (float): The desired tempo in beats per minute (typically between 60-180)
+    """
+    # Ensure BPM is within a reasonable range
+    if bpm < 20 or bpm > 999:
+        print(f"Warning: BPM value {bpm} is outside normal range (20-999)")
+        bpm = max(20, min(bpm, 999))
+    
+    print(f"Setting tempo to {bpm} BPM...")
+    
+    # Method 1: Using your existing NOTE_SET_BPM note to trigger the tempo change mode
+    # then sending the value via CC
+    send_midi_note(NOTE_SET_BPM)
+    time.sleep(0.2)
+    
+    # Assuming CC 1 is mapped to handle the BPM value as shown in your create_basic_beat function
+    # For values above 127, we'll need to split the value
+    bpm_int = int(bpm)
+    
+    if bpm_int <= 127:
+        send_midi_cc(1, bpm_int)
+    else:
+        # If BPM is larger than 127, send two CC messages
+        # First CC for the high byte (value/128)
+        send_midi_cc(1, bpm_int // 128)
+        time.sleep(0.1)
+        # Second CC for the low byte (value%128)
+        send_midi_cc(2, bpm_int % 128)
+    
+    # Optional: If your FL Studio device supports decimal points in BPM
+    # Send fractional part on another CC if needed
+    decimal_part = int((bpm - bpm_int) * 100)
+    if decimal_part > 0:
+        time.sleep(0.1)
+        send_midi_cc(3, min(decimal_part, 127))
+    
+    time.sleep(0.3)  # Give FL Studio time to process
+    print(f"Tempo set to {bpm} BPM")
+
 # Create a new channel with a name
-@mcp.tool()
 def create_channel(name):
     """Create a new channel in FL Studio with the specified name"""
     print(f"Creating channel: {name}")
@@ -193,10 +130,11 @@ def create_channel(name):
     print(f"Channel '{name}' created successfully")
 
 # Set a specific step in the step sequencer grid
-@mcp.tool()
 def set_step(channel, step, enabled=True, velocity=100):
     """
-    Set a step in the FL Studio step sequencer grid
+    Set a step in the FL Studio step sequencer grid. 
+    Basically a midi note. 
+    (The visual element of the Midi Note in the channel rack). 
     
     Args:
         channel: Channel index (0-based)
@@ -224,7 +162,6 @@ def set_step(channel, step, enabled=True, velocity=100):
         time.sleep(0.1)
 
 # Create a simple 4/4 beat pattern
-@mcp.tool()
 def create_basic_beat():
     """Create a simple 4/4 beat pattern with kick, snare, and hi-hat"""
     print("Creating a new drum pattern in FL Studio's Step Sequencer...")
@@ -292,7 +229,6 @@ def create_basic_beat():
     print("Beat created successfully! You should see steps in the Channel Rack step sequencer.")
 
 # Create a trap-style beat
-@mcp.tool()
 def create_trap_beat():
     """Create a trap-style beat with hi-hat rolls and 808 kicks"""
     print("Creating a trap beat in FL Studio's Step Sequencer...")
@@ -368,7 +304,6 @@ def create_trap_beat():
     print("Trap beat created successfully! You should see steps in the Channel Rack step sequencer.")
 
 # Create a house beat
-@mcp.tool()
 def create_house_beat():
     """Create a classic house beat with four-on-the-floor kick"""
     print("Creating a house beat in FL Studio's Step Sequencer...")
@@ -439,8 +374,23 @@ def create_house_beat():
     send_midi_note(NOTE_PLAY)
     
     print("House beat created successfully! You should see steps in the Channel Rack step sequencer.")
-    
 
 if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport='stdio')
+    print("FL Studio Step Sequencer Grid Builder")
+    print("1. Basic Beat")
+    print("2. Trap Beat")
+    print("3. House Beat")
+    
+    choice = input("Select a beat style (1-3): ")
+    
+    if choice == "1":
+        create_basic_beat()
+    elif choice == "2":
+        create_trap_beat()
+    elif choice == "3":
+        create_house_beat()
+    elif choice == "4":
+        change_tempo(221)
+    else:
+        print("Invalid choice. Creating basic beat by default.")
+        create_basic_beat()
