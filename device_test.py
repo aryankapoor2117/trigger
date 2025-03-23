@@ -93,6 +93,8 @@ def change_tempo(bpm):
     )
 
 
+
+
 def OnMidiMsg(event, timestamp=0):
     """Called when a processed MIDI message is received"""
     print(f"MIDI Msg - Status: {event.status}, Data1: {event.data1}, Data2: {event.data2}")
@@ -196,6 +198,43 @@ def OnTempoChange(tempo):
     print(f"Tempo changed to: {tempo} BPM")
     return
 
+def add_chord_to_piano_roll(midi_bytes, time_position=0, length=96):
+    """
+    Add a chord represented as MIDI bytes to the currently selected piano roll
+    
+    Format: [note_count, note1, note2, note3, ...]
+    
+    Args:
+        midi_bytes: List of MIDI bytes (0-127)
+        time_position (int): Starting position in ticks
+        length (int): Note length in ticks (default is 96 for a quarter note)
+    """
+    if not midi_bytes or midi_bytes[0] < 1:
+        print("Invalid midi byte array")
+        return
+    
+    note_count = midi_bytes[0]
+    
+    # Get the currently selected channel
+    channel = channels.selectedChannel()
+    
+    print(f"Adding chord to channel {channel} at position {time_position}")
+    
+    # Process each note in the chord
+    for i in range(note_count):
+        if i + 1 < len(midi_bytes):
+            note = midi_bytes[i + 1]
+            velocity = 100  # Default velocity
+            pan = 0  # Center pan
+            
+            # Add the note to the piano roll
+            channels.addNote(channel, time_position, length, note, velocity, pan)
+            print(f"Added note {note} at position {time_position} with length {length}")
+    
+    # Force update the UI to show the new notes
+    commit_pattern_changes()
+    print(f"Chord with {note_count} notes added to piano roll")
+
 # Terminal interface functions
 def start_terminal_thread():
     """Start a thread to handle terminal input"""
@@ -223,6 +262,145 @@ def terminal_loop():
     
     terminal_active = False
 
+def record_c_major_chord_in_tempo(length_beats=4.0, position_beats=0.0):
+    """
+    Records a C major chord to the piano roll synced with project tempo
+    
+    Args:
+        length_beats (float): Length of chord in beats (1.0 = quarter note)
+        position_beats (float): Position to place chord in beats from start
+    """
+    # Make sure we're in recording mode and transport is stopped first
+    if transport.isPlaying():
+        transport.stop()
+    
+    if not transport.isRecording():
+        transport.record()
+    
+    # Get the current channel
+    channel = channels.selectedChannel()
+    
+    # Get the project's PPQ (pulses per quarter note)
+    ppq = general.getRecPPQ()
+    transport.setSongPos(0, 2)
+    
+    # Calculate ticks based on beats
+    length_ticks = int(length_beats * ppq)
+    position_ticks = int(position_beats * ppq)
+    
+    # Set playback position if needed
+    if position_beats > 0:
+        transport.setSongPos(position_ticks, 2)  # 2 = SONGLENGTH_ABSTICKS
+    
+    print(f"Recording C major chord to channel {channel}, length: {length_beats} beats")
+    
+    # Start playback - this begins recording
+    transport.start()
+    
+    # Play the chord notes
+    channels.midiNoteOn(channel, 60, 100)  # C
+    channels.midiNoteOn(channel, 64, 100)  # E
+    channels.midiNoteOn(channel, 67, 100)  # G
+    
+    # We can't use time.sleep() for tempo synchronization
+    # Instead, we'll monitor the song position until we reach the end point
+    start_pos = transport.getSongPos(2)  # Get current position in ticks
+    end_pos = start_pos + length_ticks
+    
+    # Wait until we reach the end position
+    while transport.getSongPos(2) < end_pos and transport.isPlaying():
+        # Small delay to avoid busy-waiting
+        time.sleep(0.01)
+    
+    # Send note-off events
+    channels.midiNoteOn(channel, 60, 0)  # C off
+    channels.midiNoteOn(channel, 64, 0)  # E off
+    channels.midiNoteOn(channel, 67, 0)  # G off
+    
+    # Stop playback and recording
+    transport.stop()
+    transport.setSongPos(0, 2)
+    
+    # Exit recording mode
+    if transport.isRecording():
+        transport.record()
+    
+    print(f"C major chord recorded to piano roll, length: {length_beats} beats")
+
+def record_c_major_progression(chord_length_beats=4.0):
+    """
+    Records a I-IV-V-I chord progression in C major to the piano roll
+    
+    Args:
+        chord_length_beats (float): Length of each chord in beats (default: 4.0 = whole note)
+    """
+    # Get the current channel
+    channel = channels.selectedChannel()
+    
+    # Get the project's PPQ (pulses per quarter note)
+    ppq = general.getRecPPQ()
+    
+    # Define the chord progression (C major, F major, G major, C major)
+    progression = [
+        [60, 64, 67],  # I (C major: C-E-G)
+        [65, 69, 72],  # IV (F major: F-A-C)
+        [67, 71, 74],  # V (G major: G-B-D)
+        [60, 64, 67]   # I (C major: C-E-G)
+    ]
+    
+    # Calculate ticks for note length
+    chord_length_ticks = int(chord_length_beats * ppq)
+    
+    # Stop playback and recording if active
+    if transport.isPlaying():
+        transport.stop()
+    
+    # Reset playback position to beginning before recording
+    transport.setSongPos(0, 2)  # Set position to 0 ticks
+    
+    # Enable recording mode if not already active
+    if not transport.isRecording():
+        transport.record()
+    
+    print(f"Recording I-IV-V-I chord progression in C major, each chord: {chord_length_beats} beats")
+    
+    # Start playback - this begins recording
+    transport.start()
+    
+    # For each chord in the progression
+    for chord_index, chord in enumerate(progression):
+        # Get current position in ticks
+        current_pos = transport.getSongPos(2)
+        
+        # Calculate end position for this chord
+        end_pos = current_pos + chord_length_ticks
+        
+        # Play the chord notes
+        for note in chord:
+            channels.midiNoteOn(channel, note, 100)  # Note on with velocity 100
+        
+        # Wait until we reach the end position for this chord
+        while transport.getSongPos(2) < end_pos and transport.isPlaying():
+            time.sleep(0.01)  # Small delay to avoid busy-waiting
+        
+        # Send note-off events for this chord
+        for note in chord:
+            channels.midiNoteOn(channel, note, 0)  # Note off
+        
+        print(f"Recorded chord {chord_index + 1} of 4: {chord}")
+    
+    # Stop playback and recording
+    transport.stop()
+    
+    # Exit recording mode
+    if transport.isRecording():
+        transport.record()
+    
+    # Reset playback position to beginning again
+    transport.setSongPos(0, 2)  # Set position back to 0 ticks
+    
+    print("I-IV-V-I chord progression recorded to piano roll")
+    
 def change_tempo_from_notes(note_array):
     """
     Change the tempo in FL Studio based on an array of MIDI notes
@@ -247,6 +425,7 @@ def change_tempo_from_notes(note_array):
     change_tempo(bpm_value)
     
     return bpm_value
+
 
 def process_command(command):
     """Process a command entered in the terminal"""
@@ -535,6 +714,8 @@ def process_command(command):
     else:
         print(f"Unknown command: {cmd}")
         print("Type 'help' for a list of commands")
+    
+
 
 def show_help():
     """Display help information"""
