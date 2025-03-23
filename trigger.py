@@ -147,6 +147,121 @@ def record():
     output_port.send(mido.Message('note_off', note=62, velocity=0))
     print("Sent Record command")
 
+@mcp.tool()
+def send_melody(notes_data):
+    """
+    Send a sequence of MIDI notes with timing information to FL Studio for recording
+    
+    Args:
+        notes_data (str): String containing note data in format "note,velocity,length,position"
+                         with each note on a new line
+    """
+    # Constants for special MIDI messages
+    TOGGLE_RECEIVE = 0      # Toggle receiving mode on/off
+    DECIMAL_MARKER = 100    # Indicates next value is a decimal part
+    LENGTH_MARKER = 101     # Next value affects length
+    POSITION_MARKER = 102   # Next value affects position
+    
+    # Parse the notes_data string
+    notes = []
+    for line in notes_data.strip().split('\n'):
+        if not line.strip():
+            continue
+            
+        parts = line.strip().split(',')
+        if len(parts) != 4:
+            print(f"Warning: Skipping invalid line: {line}")
+            continue
+            
+        try:
+            note = int(parts[0])
+            velocity = int(parts[1])
+            length = float(parts[2])
+            position = float(parts[3])
+            notes.append((note, velocity, length, position))
+        except ValueError:
+            print(f"Warning: Skipping line with invalid values: {line}")
+            continue
+    
+    # Count total MIDI messages we'll send
+    # For each note: note+velocity, length marker, length whole, length decimal part (if needed),
+    # position marker, position whole, position decimal part (if needed)
+    midi_message_count = 0
+    for note, velocity, length, position in notes:
+        # Basic note and its parameters
+        midi_message_count += 1  # Note itself
+        midi_message_count += 1  # Length marker
+        midi_message_count += 1  # Length whole part
+        
+        # Add decimal parts if needed
+        if length != int(length):
+            midi_message_count += 2  # Decimal marker + decimal value
+            
+        midi_message_count += 1  # Position marker
+        midi_message_count += 1  # Position whole part
+        
+        # Add decimal parts if needed  
+        if position != int(position):
+            midi_message_count += 2  # Decimal marker + decimal value
+    
+    # Start receiving mode and send count
+    print(f"Starting FL Studio note receiving mode with {midi_message_count} messages...")
+    send_midi_note(TOGGLE_RECEIVE)
+    time.sleep(0.2)
+    
+    # Send count of messages
+    send_midi_note(midi_message_count)
+    time.sleep(0.2)
+    
+    # Process each note
+    for i, (note, velocity, length, position) in enumerate(notes):
+        print(f"Sending note {i+1}/{len(notes)}: note={note}, velocity={velocity}, length={length:.2f}, position={position:.2f}")
+        
+        # Send the note and velocity
+        send_midi_note(note, velocity)
+        time.sleep(0.1)
+        
+        # Send length parameter
+        send_midi_note(LENGTH_MARKER)
+        time.sleep(0.1)
+        
+        # Split length into whole and decimal parts
+        length_whole = int(length)
+        length_decimal = int((length - length_whole) * 10 + 0.5)  # Round to nearest
+        
+        # Send whole part
+        send_midi_note(length_whole)
+        time.sleep(0.1)
+        
+        # Send decimal part if non-zero
+        if length_decimal > 0:
+            send_midi_note(DECIMAL_MARKER)
+            time.sleep(0.1)
+            send_midi_note(length_decimal)
+            time.sleep(0.1)
+        
+        # Send position parameter
+        send_midi_note(POSITION_MARKER)
+        time.sleep(0.1)
+        
+        # Split position into whole and decimal parts
+        position_whole = int(position)
+        position_decimal = int((position - position_whole) * 10 + 0.5)  # Round to nearest
+        
+        # Send whole part
+        send_midi_note(position_whole)
+        time.sleep(0.1)
+        
+        # Send decimal part if non-zero
+        if position_decimal > 0:
+            send_midi_note(DECIMAL_MARKER)
+            time.sleep(0.1)
+            send_midi_note(position_decimal)
+            time.sleep(0.1)
+    
+    print(f"Successfully sent {len(notes)} notes to FL Studio")
+    return f"Sent {len(notes)} notes ({midi_message_count} MIDI messages) to FL Studio for recording"
+
 # Send a MIDI note message
 @mcp.tool()
 def send_midi_note(note, velocity=100, duration=0.1):
