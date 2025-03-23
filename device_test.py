@@ -469,72 +469,101 @@ def record_c_major_progression(chord_length_beats=1.0):
     print("I-IV-V-I chord progression recorded to piano roll")
 
 
-def record_c_major_chord_in_tempo(length_beats=4.0, position_beats=0.0):
+def rec(length_beats=4.0, position_beats=0.0, quantize=True):
     """
     Records a C major chord to the piano roll synced with project tempo
     
     Args:
         length_beats (float): Length of chord in beats (1.0 = quarter note)
         position_beats (float): Position to place chord in beats from start
+        quantize (bool): Whether to quantize the recording afterward
     """
-    # Make sure we're in recording mode and transport is stopped first
+    # Make sure transport is stopped first
     if transport.isPlaying():
         transport.stop()
-    
-    if not transport.isRecording():
-        transport.record()
     
     # Get the current channel
     channel = channels.selectedChannel()
     
     # Get the project's PPQ (pulses per quarter note)
     ppq = general.getRecPPQ()
-    transport.setSongPos(0, 2)
     
     # Calculate ticks based on beats
     length_ticks = int(length_beats * ppq)
     position_ticks = int(position_beats * ppq)
     
-    # Set playback position if needed
-    if position_beats > 0:
-        transport.setSongPos(position_ticks, 2)  # 2 = SONGLENGTH_ABSTICKS
+    # Set playback position
+    transport.setSongPos(position_ticks, 2)  # 2 = SONGLENGTH_ABSTICKS
     
-    print(f"Recording C major chord to channel {channel}, length: {length_beats} beats")
+    # Toggle recording mode if needed
+    if not transport.isRecording():
+        transport.record()
     
-    # Start playback - this begins recording
+    print(f"Recording C major chord to channel {channel}")
+    print(f"Position: {position_beats} beats, Length: {length_beats} beats")
+    
+    # Calculate the exact tick positions where we need to place notes and note-offs
+    start_tick = position_ticks
+    end_tick = start_tick + length_ticks
+    
+    # Start playback to begin recording
     transport.start()
     
-    # Play the chord notes
+    # Small delay to ensure transport is actually running
+    #time.sleep(0.1)
+    
+    # Record the notes at the exact start position
     channels.midiNoteOn(channel, 60, 100)  # C
     channels.midiNoteOn(channel, 64, 100)  # E
     channels.midiNoteOn(channel, 67, 100)  # G
     
-    # We can't use time.sleep() for tempo synchronization
-    # Instead, we'll monitor the song position until we reach the end point
-    start_pos = transport.getSongPos(2)  # Get current position in ticks
-    end_pos = start_pos + length_ticks
+    # Get the current tempo (BPM)
+    # We'll get this using the general module instead
+    tempo = general.getRecPPQ() / 24  # This approximates the tempo value
+    # Calculate the time to wait in seconds
+    # Length in beats / (tempo / 60) = seconds
+    seconds_to_wait = (length_beats * 60) / tempo  # Using 120 BPM as default
     
-    # Wait until we reach the end position
-    while transport.getSongPos(2) < end_pos: 
-        # Small delay to avoid busy-waiting
-        time.sleep(0.01)
-
-    print("taKING NOTES OFF")
+    # If possible, try to get actual tempo from the project
+    try:
+        # Check if mixer.getCurrentTempo exists (some versions have this)
+        import mixer
+        tempo = mixer.getCurrentTempo()
+        tempo = tempo/1000
+        seconds_to_wait = (length_beats * 60) / tempo
+        print(f"Using project tempo: {tempo} BPM")
+    except (ImportError, AttributeError):
+        print("Using default tempo: 120 BPM")
+    
+    # Add a small buffer to ensure we capture the entire recording
+    #seconds_to_wait += 0.1
+    
+    print(f"Waiting for {seconds_to_wait:.2f} seconds...")
+    
+    # Wait the calculated time
+    time.sleep(seconds_to_wait)
     
     # Send note-off events
     channels.midiNoteOn(channel, 60, 0)  # C off
     channels.midiNoteOn(channel, 64, 0)  # E off
     channels.midiNoteOn(channel, 67, 0)  # G off
     
-    # Stop playback and recording
+    # Stop playback
     transport.stop()
-    transport.setSongPos(0, 2)
     
-    # Exit recording mode
+    # Exit recording mode if it was active
     if transport.isRecording():
         transport.record()
     
-    print(f"C major chord recorded to piano roll, length: {length_beats} beats")
+    # Quantize if requested
+    if quantize:
+        channels.quickQuantize(channel)
+        print("Recording quantized")
+    
+    print(f"C major chord recorded to piano roll")
+    
+    # Return to beginning
+    transport.setSongPos(0, 2)
     
 def change_tempo_from_notes(note_array):
     """
