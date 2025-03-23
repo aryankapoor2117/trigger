@@ -650,11 +650,204 @@ def record_note(note=60, velocity=100, length_beats=1.0, position_beats=0.0, qua
     # Return to beginning
     transport.setSongPos(0, 2)
 
+def rec_hihat_pattern():
+    """
+    Records a predefined hi-hat pattern to the piano roll using record_notes_batch
+    
+    This creates a 4-bar hi-hat pattern with variations in velocity, rhythm, and types of hats
+    """
+    # Stop playback and rewind to beginning first
+    if transport.isPlaying():
+        transport.stop()
+    
+    transport.setSongPos(0, 2)  # Go to the beginning
+    
+    print("Recording hi-hat pattern...")
+    
+    # Common hi-hat MIDI notes:
+    # 42 = Closed hi-hat
+    # 44 = Pedal hi-hat
+    # 46 = Open hi-hat
+    
+    # Define the pattern as a list of notes
+    # Each tuple contains (note, velocity, length_beats, position_beats)
+    hihat_pattern = [
+        # BAR 1 - Basic pattern
+        (42, 90, 0.1, 0.0),     # Closed hat on beat 1
+        (42, 65, 0.1, 0.5),     # Closed hat on off-beat
+        (42, 90, 0.1, 1.0),     # Closed hat on beat 2
+        (42, 65, 0.1, 1.5),     # Closed hat on off-beat
+        (42, 90, 0.1, 2.0),     # Closed hat on beat 3
+        (42, 65, 0.1, 2.5),     # Closed hat on off-beat
+        (42, 90, 0.1, 3.0),     # Closed hat on beat 4
+        (42, 65, 0.1, 3.5),     # Closed hat on off-beat
+        
+        # BAR 2 - Adding 16th notes
+        (42, 90, 0.1, 4.0),     # Closed hat on beat 1
+        (42, 60, 0.1, 4.25),    # Closed hat on 16th
+        (42, 70, 0.1, 4.5),     # Closed hat on off-beat
+        (42, 60, 0.1, 4.75),    # Closed hat on 16th
+        (42, 90, 0.1, 5.0),     # Closed hat on beat 2
+        (42, 60, 0.1, 5.25),    # Closed hat on 16th
+        (42, 70, 0.1, 5.5),     # Closed hat on off-beat
+        (42, 60, 0.1, 5.75),    # Closed hat on 16th
+        (42, 90, 0.1, 6.0),     # Closed hat on beat 3
+        (42, 60, 0.1, 6.25),    # Closed hat on 16th
+        (42, 70, 0.1, 6.5),     # Closed hat on off-beat
+        (42, 60, 0.1, 6.75),    # Closed hat on 16th
+        (42, 90, 0.1, 7.0),     # Closed hat on beat 4
+        (46, 80, 0.2, 7.5),     # Open hat on off-beat
+        
+        # BAR 3 - Mixing closed and open hats
+        (42, 100, 0.1, 8.0),    # Closed hat on beat 1
+        (42, 70, 0.1, 8.5),     # Closed hat on off-beat
+        (46, 85, 0.2, 9.0),     # Open hat on beat 2
+        (42, 70, 0.1, 9.5),     # Closed hat on off-beat
+        (42, 95, 0.1, 10.0),    # Closed hat on beat 3
+        (42, 70, 0.1, 10.5),    # Closed hat on off-beat
+        (46, 85, 0.2, 11.0),    # Open hat on beat 4
+        
+        # Triplet fill at the end of bar 3
+        (42, 80, 0.08, 11.33),  # Closed hat - triplet 1
+        (42, 85, 0.08, 11.66),  # Closed hat - triplet 2
+        (42, 90, 0.08, 11.99),  # Closed hat - triplet 3
+        
+        # BAR 4 - Complex pattern with pedal hats
+        (42, 100, 0.1, 12.0),   # Closed hat on beat 1
+        (44, 75, 0.1, 12.25),   # Pedal hat on 16th
+        (42, 80, 0.1, 12.5),    # Closed hat on off-beat
+        (44, 70, 0.1, 12.75),   # Pedal hat on 16th
+        (42, 90, 0.1, 13.0),    # Closed hat on beat 2
+        (46, 85, 0.3, 13.5),    # Open hat on off-beat
+        
+        # Beat 3-4: Building intensity
+        (42, 95, 0.1, 14.0),    # Closed hat on beat 3
+        (42, 75, 0.1, 14.25),   # Closed hat on 16th
+        (42, 85, 0.1, 14.5),    # Closed hat on off-beat
+        (42, 80, 0.1, 14.75),   # Closed hat on 16th
+        
+        # Final fill
+        (42, 85, 0.05, 15.0),   # Closed hat - 32nd note 1
+        (42, 90, 0.05, 15.125), # Closed hat - 32nd note 2
+        (42, 95, 0.05, 15.25),  # Closed hat - 32nd note 3
+        (42, 100, 0.05, 15.375),# Closed hat - 32nd note 4
+        (42, 105, 0.05, 15.5),  # Closed hat - 32nd note 5
+        (42, 110, 0.05, 15.625),# Closed hat - 32nd note 6
+        (42, 115, 0.05, 15.75), # Closed hat - 32nd note 7
+        (46, 120, 0.25, 15.875),# Open hat - final accent
+    ]
+    
+    # Record the hi-hat pattern using the batch recording function
+    record_notes_batch(hihat_pattern)
+    
+    print("Hi-hat pattern recording complete!")
+    
+    # Quantize the hi-hat pattern
+    channel = channels.selectedChannel()
+    channels.quickQuantize(channel)
+    
+    # Return to beginning
+    transport.setSongPos(0, 2)
+
+def record_notes_batch(notes_array):
+    """
+    Records a batch of notes to FL Studio, handling simultaneous notes properly
+    
+    Args:
+        notes_array: List of tuples, each containing (note, velocity, length_beats, position_beats)
+    """
+    # Sort notes by their starting position
+    sorted_notes = sorted(notes_array, key=lambda x: x[3])
+    
+    # Group notes by their starting positions
+    position_groups = {}
+    for note in sorted_notes:
+        position = note[3]  # position_beats is the 4th element (index 3)
+        if position not in position_groups:
+            position_groups[position] = []
+        position_groups[position].append(note)
+    
+    # Process each position group
+    positions = sorted(position_groups.keys())
+    for position in positions:
+        notes_at_position = position_groups[position]
+        
+        # Find the longest note in this group to determine recording length
+        max_length = max(note[2] for note in notes_at_position)
+        
+        # Make sure transport is stopped first
+        if transport.isPlaying():
+            transport.stop()
+        
+        # Get the current channel
+        channel = channels.selectedChannel()
+        
+        # Get the project's PPQ (pulses per quarter note)
+        ppq = general.getRecPPQ()
+        
+        # Calculate ticks based on beats
+        position_ticks = int(position * ppq)
+        
+        # Set playback position
+        transport.setSongPos(position_ticks, 2)  # 2 = SONGLENGTH_ABSTICKS
+        
+        # Toggle recording mode if needed
+        if not transport.isRecording():
+            transport.record()
+        
+        print(f"Recording {len(notes_at_position)} simultaneous notes at position {position}")
+        
+        # Start playback to begin recording
+        transport.start()
+        
+        # Record all notes at this position simultaneously
+        for note, velocity, length, _ in notes_at_position:
+            channels.midiNoteOn(channel, note, velocity)
+        
+        # Get the current tempo
+        try:
+            import mixer
+            tempo = mixer.getCurrentTempo()
+            tempo = tempo/1000
+        except (ImportError, AttributeError):
+            tempo = 120  # Default fallback
+            
+        print(f"Using tempo: {tempo} BPM")
+        
+        # Calculate the time to wait in seconds based on the longest note
+        seconds_to_wait = (max_length * 60) / tempo
+        
+        print(f"Waiting for {seconds_to_wait:.2f} seconds...")
+        
+        # Wait the calculated time
+        time.sleep(seconds_to_wait)
+        
+        # Send note-off events for all notes
+        for note, _, _, _ in notes_at_position:
+            channels.midiNoteOn(channel, note, 0)
+        
+        # Stop playback
+        transport.stop()
+        
+        # Exit recording mode if it was active
+        if transport.isRecording():
+            transport.record()
+        
+        # Small pause between recordings to avoid potential issues
+        time.sleep(0.2)
+    
+    print("All notes recorded successfully")
+    
+    # Return to beginning
+    transport.setSongPos(0, 2)
+
+
+
 def rec_melody():
     """
-    Records a predefined melody to the piano roll by calling record_note multiple times
+    Records a predefined melody to the piano roll by calling record_notes_batch
     
-    The melody is a simple C major arpeggio with some rhythm variation
+    The melody is a robust 4-bar composition with melody notes and chord accompaniment
     """
     # Stop playback and rewind to beginning first
     if transport.isPlaying():
@@ -787,18 +980,10 @@ def rec_melody():
         (72, 120, 2.0, 14.0),   # C5 - melody final note
     ]
     
-    # Record each note in the melody
-    for i, (note, velocity, length, position) in enumerate(melody):
-        print(f"Recording note {i+1}/{len(melody)}")
-        record_note(note, velocity, length, position)
-        
-        # Small pause between recordings to avoid potential issues
-        time.sleep(0.2)
+    # Record the melody using the batch recording function
+    record_notes_batch(melody)
     
     print("Melody recording complete!")
-    
-    # Return to beginning
-    transport.setSongPos(0, 2)
 
 def record_50s_progression():
     """Records a 4-bar chord progression commonly used in 50s music (I-VI-IV-V)"""
