@@ -564,6 +564,355 @@ def rec(length_beats=4.0, position_beats=0.0, quantize=True):
     
     # Return to beginning
     transport.setSongPos(0, 2)
+
+def record_note(note=60, velocity=100, length_beats=1.0, position_beats=0.0, quantize=True):
+    """
+    Records a single note to the piano roll synced with project tempo
+    
+    Args:
+        note (int): MIDI note number (60 = middle C)
+        velocity (int): Note velocity (0-127)
+        length_beats (float): Length of note in beats (1.0 = quarter note)
+        position_beats (float): Position to place note in beats from start
+        quantize (bool): Whether to quantize the recording afterward
+    """
+    # Make sure transport is stopped first
+    if transport.isPlaying():
+        transport.stop()
+    
+    # Get the current channel
+    channel = channels.selectedChannel()
+    
+    # Get the project's PPQ (pulses per quarter note)
+    ppq = general.getRecPPQ()
+    
+    # Calculate ticks based on beats
+    length_ticks = int(length_beats * ppq)
+    position_ticks = int(position_beats * ppq)
+    
+    # Set playback position
+    transport.setSongPos(position_ticks, 2)  # 2 = SONGLENGTH_ABSTICKS
+    
+    # Toggle recording mode if needed
+    if not transport.isRecording():
+        transport.record()
+    
+    print(f"Recording note {note} to channel {channel}")
+    print(f"Position: {position_beats} beats, Length: {length_beats} beats")
+    
+    # Calculate the exact tick positions where we need to place note and note-off
+    start_tick = position_ticks
+    end_tick = start_tick + length_ticks
+    
+    # Start playback to begin recording
+    transport.start()
+    
+    # Record the note at the exact start position
+    channels.midiNoteOn(channel, note, velocity)
+    
+    # Get the current tempo (BPM)
+    tempo = 120  # Default fallback
+    
+    # Try to get actual tempo from the project
+    try:
+        import mixer
+        tempo = mixer.getCurrentTempo()
+        tempo = tempo/1000
+        print(f"Using project tempo: {tempo} BPM")
+    except (ImportError, AttributeError):
+        print("Using default tempo: 120 BPM")
+    
+    # Calculate the time to wait in seconds
+    seconds_to_wait = (length_beats * 60) / tempo
+    
+    print(f"Waiting for {seconds_to_wait:.2f} seconds...")
+    
+    # Wait the calculated time
+    time.sleep(seconds_to_wait)
+    
+    # Send note-off event
+    channels.midiNoteOn(channel, note, 0)
+    
+    # Stop playback
+    transport.stop()
+    
+    # Exit recording mode if it was active
+    if transport.isRecording():
+        transport.record()
+    
+    # Quantize if requested
+    if quantize:
+        channels.quickQuantize(channel)
+        print("Recording quantized")
+    
+    print(f"Note {note} recorded to piano roll")
+    
+    # Return to beginning
+    transport.setSongPos(0, 2)
+
+def rec_melody():
+    """
+    Records a predefined melody to the piano roll by calling record_note multiple times
+    
+    The melody is a simple C major arpeggio with some rhythm variation
+    """
+    # Stop playback and rewind to beginning first
+    if transport.isPlaying():
+        transport.stop()
+    
+    transport.setSongPos(0, 2)  # Go to the beginning
+    
+    print("Recording melody...")
+    
+    # Define the melody as a list of notes
+    # Each tuple contains (note, velocity, length_beats, position_beats)
+    melody = [
+        # BAR 1
+        # Beat 1: C major chord
+        (60, 100, 1.0, 0.0),    # C4 - root note
+        (64, 85, 1.0, 0.0),     # E4 - chord tone
+        (67, 80, 1.0, 0.0),     # G4 - chord tone
+        
+        # Beat 1.5: Melody note
+        (72, 110, 0.5, 0.5),    # C5 - melody
+        
+        # Beat 2: G7 chord
+        (55, 90, 1.0, 1.0),     # G3 - bass note
+        (59, 75, 1.0, 1.0),     # B3 - chord tone
+        (62, 75, 1.0, 1.0),     # D4 - chord tone
+        (65, 75, 1.0, 1.0),     # F4 - chord tone
+        
+        # Beat 2.5-3: Melody phrase
+        (71, 105, 0.25, 1.5),   # B4 - melody
+        (69, 95, 0.25, 1.75),   # A4 - melody
+        (67, 90, 0.5, 2.0),     # G4 - melody
+        
+        # Beat 3: C major chord
+        (48, 95, 1.0, 2.0),     # C3 - bass note
+        (64, 75, 1.0, 2.0),     # E4 - chord tone
+        (67, 75, 1.0, 2.0),     # G4 - chord tone
+        
+        # Beat 4: Melody fill
+        (64, 100, 0.5, 3.0),    # E4 - melody
+        (65, 90, 0.25, 3.5),    # F4 - melody
+        (67, 95, 0.25, 3.75),   # G4 - melody
+        
+        # BAR 2
+        # Beat 1: Am chord
+        (57, 95, 1.0, 4.0),     # A3 - bass note
+        (60, 80, 1.0, 4.0),     # C4 - chord tone
+        (64, 80, 1.0, 4.0),     # E4 - chord tone
+        
+        # Beat 1-2: Melody note
+        (69, 110, 0.75, 4.0),   # A4 - melody
+        (67, 90, 0.25, 4.75),   # G4 - melody
+        
+        # Beat 2: F major chord
+        (53, 90, 1.0, 5.0),     # F3 - bass note
+        (57, 75, 1.0, 5.0),     # A3 - chord tone
+        (60, 75, 1.0, 5.0),     # C4 - chord tone
+        
+        # Beat 2.5-3: Melody
+        (65, 100, 0.5, 5.5),    # F4 - melody
+        (64, 90, 0.5, 6.0),     # E4 - melody
+        
+        # Beat 3: G7 chord
+        (55, 95, 1.0, 6.0),     # G3 - bass note
+        (59, 80, 1.0, 6.0),     # B3 - chord tone
+        (62, 80, 1.0, 6.0),     # D4 - chord tone
+        
+        # Beat 3.5-4: Melody fill
+        (62, 100, 0.25, 6.5),   # D4 - melody
+        (64, 95, 0.25, 6.75),   # E4 - melody
+        (65, 90, 0.25, 7.0),    # F4 - melody
+        (67, 105, 0.75, 7.25),  # G4 - melody
+        
+        # BAR 3
+        # Beat 1: C major chord
+        (48, 100, 1.0, 8.0),    # C3 - bass note
+        (60, 85, 1.0, 8.0),     # C4 - chord tone
+        (64, 85, 1.0, 8.0),     # E4 - chord tone
+        (67, 85, 1.0, 8.0),     # G4 - chord tone
+        
+        # Beat 1-2: Melody
+        (72, 110, 1.0, 8.0),    # C5 - melody
+        
+        # Beat 2: Em chord
+        (52, 90, 1.0, 9.0),     # E3 - bass note
+        (59, 75, 1.0, 9.0),     # B3 - chord tone
+        (64, 75, 1.0, 9.0),     # E4 - chord tone
+        
+        # Beat 2.5-3.5: Melody run
+        (71, 105, 0.25, 9.5),   # B4 - melody
+        (72, 100, 0.25, 9.75),  # C5 - melody
+        (74, 110, 0.5, 10.0),   # D5 - melody
+        (76, 115, 0.5, 10.5),   # E5 - melody
+        
+        # Beat 3: Am chord
+        (57, 95, 1.0, 10.0),    # A3 - bass note
+        (60, 80, 1.0, 10.0),    # C4 - chord tone
+        (64, 80, 1.0, 10.0),    # E4 - chord tone
+        
+        # Beat 4: Descending run
+        (74, 100, 0.25, 11.0),  # D5 - melody
+        (72, 95, 0.25, 11.25),  # C5 - melody
+        (71, 90, 0.25, 11.5),   # B4 - melody
+        (69, 85, 0.25, 11.75),  # A4 - melody
+        
+        # BAR 4
+        # Beat 1: F major chord
+        (53, 95, 1.0, 12.0),    # F3 - bass note
+        (60, 80, 1.0, 12.0),    # C4 - chord tone
+        (65, 80, 1.0, 12.0),    # F4 - chord tone
+        
+        # Beat 1-2: Melody
+        (67, 100, 1.0, 12.0),   # G4 - melody
+        
+        # Beat 2: G7 chord
+        (55, 90, 1.0, 13.0),    # G3 - bass note
+        (59, 75, 1.0, 13.0),    # B3 - chord tone
+        (62, 75, 1.0, 13.0),    # D4 - chord tone
+        
+        # Beat 2-3: Melody
+        (65, 95, 0.5, 13.0),    # F4 - melody
+        (64, 90, 0.5, 13.5),    # E4 - melody
+        
+        # Beat 3-4: Final C major chord
+        (48, 110, 2.0, 14.0),   # C3 - bass note
+        (60, 95, 2.0, 14.0),    # C4 - chord tone
+        (64, 95, 2.0, 14.0),    # E4 - chord tone
+        (67, 95, 2.0, 14.0),    # G4 - chord tone
+        
+        # Final melody note
+        (72, 120, 2.0, 14.0),   # C5 - melody final note
+    ]
+    
+    # Record each note in the melody
+    for i, (note, velocity, length, position) in enumerate(melody):
+        print(f"Recording note {i+1}/{len(melody)}")
+        record_note(note, velocity, length, position)
+        
+        # Small pause between recordings to avoid potential issues
+        time.sleep(0.2)
+    
+    print("Melody recording complete!")
+    
+    # Return to beginning
+    transport.setSongPos(0, 2)
+
+def record_50s_progression():
+    """Records a 4-bar chord progression commonly used in 50s music (I-VI-IV-V)"""
+    
+    # Define the 50s progression in C: I-VI-IV-V
+    fifties_progression = [
+        {'name': 'C Major (I)', 'notes': [60, 64, 67]},       # C-E-G
+        {'name': 'A Minor (VI)', 'notes': [57, 60, 64]},      # A-C-E
+        {'name': 'F Major (IV)', 'notes': [53, 57, 60]},      # F-A-C
+        {'name': 'G Major (V)', 'notes': [55, 59, 62]},       # G-B-D
+    ]
+    
+    # Record the progression with 4 beats per chord
+    record_chord_progression(fifties_progression, beats_per_chord=4.0)
+
+def record_chord_progression(chord_progression, beats_per_chord=4.0, quantize=True):
+    """
+    Records a chord progression to the piano roll
+    
+    Args:
+        chord_progression (list): List of chord dictionaries with note values
+        beats_per_chord (float): Length of each chord in beats
+        quantize (bool): Whether to quantize the recording
+    """
+    # Define common chord structures (if needed as a reference)
+    chord_types = {
+        'major': [0, 4, 7],       # Root, Major 3rd, Perfect 5th
+        'minor': [0, 3, 7],       # Root, Minor 3rd, Perfect 5th
+        'diminished': [0, 3, 6],  # Root, Minor 3rd, Diminished 5th
+        'augmented': [0, 4, 8],   # Root, Major 3rd, Augmented 5th
+        '7': [0, 4, 7, 10],       # Root, Major 3rd, Perfect 5th, Minor 7th
+        'maj7': [0, 4, 7, 11],    # Root, Major 3rd, Perfect 5th, Major 7th
+        'm7': [0, 3, 7, 10],      # Root, Minor 3rd, Perfect 5th, Minor 7th
+    }
+    
+    # Ensure transport is stopped first
+    if transport.isPlaying():
+        transport.stop()
+    
+    # Exit recording mode if needed to start fresh
+    if transport.isRecording():
+        transport.record()
+    
+    # Get the current channel
+    channel = channels.selectedChannel()
+    
+    # Get the project's PPQ (pulses per quarter note)
+    ppq = general.getRecPPQ()
+    
+    # Turn on recording
+    if not transport.isRecording():
+        transport.record()
+    
+    print(f"Recording {len(chord_progression)} chord progression")
+    
+    # Try to get actual tempo
+    tempo = general.getRecPPQ() / 24   # Default fallback
+    try:
+        tempo = mixer.getCurrentTempo()
+        tempo = tempo/1000
+        print(f"Project tempo: {tempo} BPM")
+    except:
+        print(f"Using default tempo: {tempo} BPM")
+    
+    # Process each chord
+    for i, chord in enumerate(chord_progression):
+        # Calculate position in beats
+        position_beats = i * beats_per_chord
+        
+        # Set playback position
+        position_ticks = int(position_beats * ppq)
+        transport.setSongPos(position_ticks, 2)
+        
+        # Start playback to begin recording
+        transport.start()
+        
+        # Small delay to ensure transport is actually running
+        #time.sleep(0.1)
+        
+        # Play the notes for this chord
+        for note in chord['notes']:
+            channels.midiNoteOn(channel, note, 100)  # Note on with velocity 100
+        
+        # Calculate the time to wait in seconds
+        seconds_to_wait = (beats_per_chord * 60) / tempo
+        
+        # Add a small buffer
+        #seconds_to_wait += 0.1
+        
+        print(f"Recording chord {i+1}/{len(chord_progression)}: {chord['name']} at position {position_beats} beats")
+        
+        # Wait the calculated time
+        time.sleep(seconds_to_wait)
+        
+        # Turn off the notes
+        for note in chord['notes']:
+            channels.midiNoteOn(channel, note, 0)  # Note off
+        
+        # Stop playback
+        transport.stop()
+    
+    # Exit recording mode
+    if transport.isRecording():
+        transport.record()
+    
+    # Quantize if requested
+    if quantize:
+        channels.quickQuantize(channel)
+        print("Chord progression quantized")
+    
+    # Return to beginning
+    transport.setSongPos(0, 2)
+    
+    print(f"Chord progression recorded successfully")
     
 def change_tempo_from_notes(note_array):
     """
