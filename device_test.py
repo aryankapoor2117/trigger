@@ -70,7 +70,7 @@ def OnRefresh(flags):
 
 def OnMidiIn(event):
     """Called whenever the device sends a MIDI message to FL Studio"""
-    print(f"MIDI In - Status: {event.status}, Data1: {event.data1}, Data2: {event.data2}")
+    #print(f"MIDI In - Status: {event.status}, Data1: {event.data1}, Data2: {event.data2}")
     return
 
 def change_tempo(bpm):
@@ -92,87 +92,352 @@ def change_tempo(bpm):
         midi.REC_Control | midi.REC_UpdateControl
     )
 
+def process_received_midi(note, velocity):
 
+    global current_note, current_velocity, current_length, current_position
+    global decimal_state, decimal_value, decimal_target
+    
+    # Special MIDI commands
+    DECIMAL_MARKER = 100   # Indicates next value is a decimal part
+    LENGTH_MARKER = 101    # Next value affects length
+    POSITION_MARKER = 102  # Next value affects position
+    
+    # Process based on message type
+    if note == DECIMAL_MARKER:
+        # Next value will be a decimal
+        decimal_state = 1
+        return False
+        
+    elif note == LENGTH_MARKER:
+        # Next value affects length
+        decimal_target = "length"
+        decimal_state = 0
+        decimal_value = 0
+        return False
+        
+    elif note == POSITION_MARKER:
+        # Next value affects position
+        decimal_target = "position"
+        decimal_state = 0
+        decimal_value = 0
+        return False
+        
+    elif decimal_state == 1:
+        # This is a decimal part value
+        decimal_value = note / 10.0  # Convert to decimal (0-9 becomes 0.0-0.9)
+        
+        # Apply to the correct parameter
+        if decimal_target == "length":
+            current_length = (current_length or 0) + decimal_value
+            print(f"Set length decimal: {current_length:.2f}")
+        elif decimal_target == "position":
+            current_position = (current_position or 0) + decimal_value
+            print(f"Set position decimal: {current_position:.2f}")
+            
+        decimal_state = 0
+        return False
+        
+    elif decimal_target is not None:
+        # This is a whole number part for a specific parameter
+        if decimal_target == "length":
+            current_length = float(note)
+            print(f"Set length whole: {current_length:.2f}")
+        elif decimal_target == "position":
+            current_position = float(note)
+            print(f"Set position whole: {current_position:.2f}")
+        return False
+        
+    else:
+        # This is a note value and velocity
+        # Check if we have a complete previous note to add
+        add_note = (current_note is not None and 
+                   current_velocity is not None and 
+                   current_length is not None and 
+                   current_position is not None)
+        
+        # Start a new note
+        current_note = note
+        current_velocity = velocity
+        # Use default values if not specified
+        if current_length is None:
+            current_length = 1.0
+        if current_position is None:
+            current_position = 0.0
+        print(f"Started new note: {current_note}, velocity: {current_velocity}")
+        
+        return add_note
 
 
 def OnMidiMsg(event, timestamp=0):
     """Called when a processed MIDI message is received"""
-    print(f"MIDI Msg - Status: {event.status}, Data1: {event.data1}, Data2: {event.data2}")
+    #print(f"MIDI Msg - Status: {event.status}, Data1: {event.data1}, Data2: {event.data2}")
     
     global channel_to_edit, step_to_edit
     global collecting_tempo_notes, tempo_note_array
+
+    global receiving_mode, midi_notes_array, message_count, messages_received
+    global current_note, current_velocity, current_length, current_position
+    global decimal_state, decimal_value, decimal_target
+
+    # Initialize global variables if they don't exist
+    if 'receiving_mode' not in globals():
+        global receiving_mode
+        receiving_mode = False
+        
+    if 'message_count' not in globals():
+        global message_count
+        message_count = 0
+        
+    if 'messages_received' not in globals():
+        global messages_received
+        messages_received = 0
+        
+    if 'midi_notes_array' not in globals():
+        global midi_notes_array
+        midi_notes_array = []
+        
+    if 'current_note' not in globals():
+        global current_note, current_velocity, current_length, current_position
+        current_note = None
+        current_velocity = None
+        current_length = None
+        current_position = None
+        
+    if 'decimal_state' not in globals():
+        global decimal_state, decimal_target
+        decimal_state = 0
+        decimal_target = None
     
-    # Handle Note On messages
+    # Only process Note On messages with velocity > 0
     if event.status >= midi.MIDI_NOTEON and event.status < midi.MIDI_NOTEON + 16 and event.data2 > 0:
         note = event.data1
+        velocity = event.data2
         
-        # Start collecting notes for tempo change
-        if note == 72:
-            collecting_tempo_notes = True
-            tempo_note_array = []
-            print("Started collecting notes for tempo change")
+        # Toggle receiving mode with note 0
+        if note == 0 and not receiving_mode:
+            receiving_mode = True
+            print("Started receiving MIDI notes")
+            # Reset variables
+            midi_notes_array = []
+            message_count = 0
+            messages_received = 0
+            current_note = None
+            current_velocity = None
+            current_length = None
+            current_position = None
+            decimal_state = 0
+            decimal_target = None
             event.handled = True
+            return
+        
+        # Get message count (next message after toggle)
+        elif receiving_mode and message_count == 0:
+            message_count = note
+            print(f"Expecting {message_count} MIDI messages")
+            event.handled = True
+            return
+        
+        # Only process further messages if in receiving mode
+        if not receiving_mode:
+            return
             
-        # End collection and apply tempo change
-        elif note == 73:
-            if collecting_tempo_notes and tempo_note_array:
-                bpm = change_tempo_from_notes(tempo_note_array)
-                print(f"Tempo changed to {bpm} BPM from collected notes: {tempo_note_array}")
-                collecting_tempo_notes = False
-                tempo_note_array = []
-            else:
-                print("No tempo notes collected, tempo unchanged")
-            event.handled = True
+        # Count received messages
+        messages_received += 1
+        
+        # Special MIDI commands
+        DECIMAL_MARKER = 100   # Indicates next value is a decimal part
+        LENGTH_MARKER = 101    # Next value affects length
+        POSITION_MARKER = 102  # Next value affects position
+        
+        # Process based on message type
+        if note == DECIMAL_MARKER:
+            # Next value will be a decimal
+            decimal_state = 1
+            print("Decimal marker received")
             
-        # Collect notes for tempo if in collection mode
-        elif collecting_tempo_notes:
-            tempo_note_array.append(note)
-            print(f"Added note {note} to tempo collection, current array: {tempo_note_array}")
-            event.handled = True
+        elif note == LENGTH_MARKER:
+            # Next value affects length
+            decimal_target = "length"
+            decimal_state = 0
+            print("Length marker received")
+            
+        elif note == POSITION_MARKER:
+            # Next value affects position
+            decimal_target = "position"
+            decimal_state = 0
+            print("Position marker received")
+            
+        elif decimal_state == 1:
+            # This is a decimal part value
+            decimal_value = note / 10.0  # Convert to decimal (0-9 becomes 0.0-0.9)
+            
+            # Apply to the correct parameter
+            if decimal_target == "length":
+                current_length = (current_length or 0) + decimal_value
+                print(f"Set length decimal: {current_length:.2f}")
+            elif decimal_target == "position":
+                current_position = (current_position or 0) + decimal_value
+                print(f"Set position decimal: {current_position:.2f}")
+                
+            decimal_state = 0
+            
+            # Check if we have a complete note after setting decimal
+            if (current_note is not None and 
+                current_velocity is not None and 
+                current_length is not None and 
+                current_position is not None and 
+                decimal_target == "position"):
+                
+                midi_notes_array.append((current_note, current_velocity, current_length, current_position))
+                print(f"Added note after decimal: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
+                # Keep track of current array size
+                print(f"Current array size: {len(midi_notes_array)}")
+                
+                # Reset for next note
+                current_note = None
+                current_velocity = None
+                current_length = None
+                current_position = None
+            
+        elif decimal_target is not None:
+            # This is a whole number part for a specific parameter
+            if decimal_target == "length":
+                current_length = float(note)
+                print(f"Set length whole: {current_length:.2f}")
+            elif decimal_target == "position":
+                current_position = float(note)
+                print(f"Set position whole: {current_position:.2f}")
+                
+                # Check if we have a complete note after setting position
+                # (only if there's no decimal part coming)
+                if (current_note is not None and 
+                    current_velocity is not None and 
+                    current_length is not None):
+                    
+                    # Check the next message - if it's not a decimal marker, add the note
+                    if messages_received < message_count - 1 and not (note == DECIMAL_MARKER):
+                        midi_notes_array.append((current_note, current_velocity, current_length, current_position))
+                        print(f"Added note after whole position: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
+                        # Keep track of current array size
+                        print(f"Current array size: {len(midi_notes_array)}")
+                        
+                        # Reset for next note
+                        current_note = None
+                        current_velocity = None
+                        current_length = None
+                        current_position = None
+            
+        else:
+            # This is a note value and velocity
+            # If we already have note data, add it first (shouldn't happen, but just in case)
+            if (current_note is not None and 
+                current_velocity is not None and 
+                current_length is not None and 
+                current_position is not None):
+                
+                midi_notes_array.append((current_note, current_velocity, current_length, current_position))
+                print(f"Added previous note before new note: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
+                # Keep track of current array size
+                print(f"Current array size: {len(midi_notes_array)}")
+            
+            # Set current note
+            current_note = note
+            current_velocity = velocity
+            print(f"Started new note: {current_note}, velocity: {current_velocity}")
+        
+        # Check if we've received all expected messages
+        if messages_received >= message_count:
+            print("Received all expected MIDI messages")
+            receiving_mode = False
+            
+            # Add final note if complete
+            if (current_note is not None and 
+                current_velocity is not None and 
+                current_length is not None and 
+                current_position is not None):
+                
+                midi_notes_array.append((current_note, current_velocity, current_length, current_position))
+                print(f"Added final note: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
+            
+            # Print all collected notes
+            print(f"Collected {len(midi_notes_array)} notes:")
+            for i, (note, vel, length, pos) in enumerate(midi_notes_array):
+                print(f"  Note {i+1}: note={note}, velocity={vel}, length={length:.2f}, position={pos:.2f}")
+            
+            print("\nFinal array:")
+            print(midi_notes_array)
+
+            
+        
+        event.handled = True
+
+    # elif note == 72:
+    #         collecting_tempo_notes = True
+    #         tempo_note_array = []
+    #         print("Started collecting notes for tempo change")
+    #         event.handled = True
+            
+    #     # End collection and apply tempo change
+    # elif note == 73:
+    #         if collecting_tempo_notes and tempo_note_array:
+    #             bpm = change_tempo_from_notes(tempo_note_array)
+    #             print(f"Tempo changed to {bpm} BPM from collected notes: {tempo_note_array}")
+    #             collecting_tempo_notes = False
+    #             tempo_note_array = []
+    #         else:
+    #             print("No tempo notes collected, tempo unchanged")
+    #         event.handled = True
+            
+    #     # Collect notes for tempo if in collection mode
+    # elif collecting_tempo_notes:
+    #         tempo_note_array.append(note)
+    #         print(f"Added note {note} to tempo collection, current array: {tempo_note_array}")
+    #         event.handled = True
     
     # Handle Control Change messages
-    elif event.status >= midi.MIDI_CONTROLCHANGE and event.status < midi.MIDI_CONTROLCHANGE + 16:
-        # CC 100: Select channel to edit
-        if event.data1 == 100:
-            channel_to_edit = event.data2
-            channels.selectOneChannel(channel_to_edit)
-            print(f"Selected channel {channel_to_edit} for grid editing")
-            event.handled = True
+    # elif event.status >= midi.MIDI_CONTROLCHANGE and event.status < midi.MIDI_CONTROLCHANGE + 16:
+    #     # CC 100: Select channel to edit
+    #     if event.data1 == 100:
+    #         channel_to_edit = event.data2
+    #         channels.selectOneChannel(channel_to_edit)
+    #         print(f"Selected channel {channel_to_edit} for grid editing")
+    #         event.handled = True
             
-        # CC 110: Select step to edit
-        elif event.data1 == 110:
-            step_to_edit = event.data2
-            print(f"Selected step {step_to_edit} for grid editing")
-            event.handled = True
+    #     # CC 110: Select step to edit
+    #     elif event.data1 == 110:
+    #         step_to_edit = event.data2
+    #         print(f"Selected step {step_to_edit} for grid editing")
+    #         event.handled = True
             
-        # CC 111: Toggle step on/off
-        elif event.data1 == 111:
-            enabled = event.data2 > 0
-            channels.setGridBit(channel_to_edit, step_to_edit, enabled)
-            print(f"Set grid bit for channel {channel_to_edit}, step {step_to_edit} to {enabled}")
-            commit_pattern_changes()  # Force UI update
-            event.handled = True
+    #     # CC 111: Toggle step on/off
+    #     elif event.data1 == 111:
+    #         enabled = event.data2 > 0
+    #         channels.setGridBit(channel_to_edit, step_to_edit, enabled)
+    #         print(f"Set grid bit for channel {channel_to_edit}, step {step_to_edit} to {enabled}")
+    #         commit_pattern_changes()  # Force UI update
+    #         event.handled = True
             
-        # CC 112: Set step velocity/level
-        elif event.data1 == 112:
-            velocity = event.data2
-            channels.setStepLevel(channel_to_edit, step_to_edit, velocity)
-            print(f"Set step level for channel {channel_to_edit}, step {step_to_edit} to {velocity}")
-            commit_pattern_changes()  # Force UI update
-            event.handled = True
+    #     # CC 112: Set step velocity/level
+    #     elif event.data1 == 112:
+    #         velocity = event.data2
+    #         channels.setStepLevel(channel_to_edit, step_to_edit, velocity)
+    #         print(f"Set step level for channel {channel_to_edit}, step {step_to_edit} to {velocity}")
+    #         commit_pattern_changes()  # Force UI update
+    #         event.handled = True
         
-        # Process other CC messages
-        else:
-            # Handle other CC messages with your existing code...
-            pass
+    #     # Process other CC messages
+    #     else:
+    #         # Handle other CC messages with your existing code...
+    #         pass
     
-    # Handle other MIDI message types if needed
-    else:
-        # Process other MIDI message types
-        pass
+    # # Handle other MIDI message types if needed
+    # else:
+    #     # Process other MIDI message types
+    #     pass
     
     # Handle Note On messages with your existing code...
     # [rest of your existing OnMidiMsg function]
+    #record_notes_batch(midi_notes_array)
 
 # Make sure your commit_pattern_changes function is defined:
 def commit_pattern_changes(pattern_num=None):
