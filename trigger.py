@@ -466,24 +466,26 @@ def send_melody(notes_data):
     
     # Initial toggle signal (note 0)
     send_midi_note(0)
-    time.sleep(0.2)
+    time.sleep(0.01)
     
     # Send total count of notes
     send_midi_note(min(127, len(notes)))
-    time.sleep(0.2)
+    time.sleep(0.01)
     
     # Send all MIDI data values
     for i, value in enumerate(midi_data):
         send_midi_note(value)
-        time.sleep(0.1)
-        print(f"Sent MIDI value {i+1}/{len(midi_data)}: {value}")
+        #time.sleep(0.1)
+        #print(f"Sent MIDI value {i+1}/{len(midi_data)}: {value}")
     
-    print(f"Melody transfer complete: {len(notes)} notes sent")
+    send_midi_note(127)
+
+    #print(f"Melody transfer complete: {len(notes)} notes sent")
     return f"Melody successfully transferred: {len(notes)} notes ({len(midi_data)} MIDI values) sent to FL Studio"
 
 # Send a MIDI note message
 @mcp.tool()
-def send_midi_note(note, velocity=100, duration=0.1):
+def send_midi_note(note, velocity=1, duration=0.1):
     """Send a MIDI note on/off message with specified duration"""
     note_on = Message('note_on', note=note, velocity=velocity)
     output_port.send(note_on)
