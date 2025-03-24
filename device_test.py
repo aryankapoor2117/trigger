@@ -244,26 +244,47 @@ def OnMidiMsg(event, timestamp=0):
             midi_notes_array.append((note, velocity, length, position))
             print(f"Added note: note={note}, velocity={velocity}, length={length:.1f}, position={position:.1f}")
             print(f"Current array size: {len(midi_notes_array)}")
+
+            if len(midi_notes_array) >= note_count or note_value == 127:
+                print(f"Received all {len(midi_notes_array)} notes or termination signal")
+                receiving_mode = False
+                
+                # Only process if we have actual notes
+                if midi_notes_array:
+                    # Print all collected notes
+                    print(f"Collected {len(midi_notes_array)} notes:")
+                    for i, (note, vel, length, pos) in enumerate(midi_notes_array):
+                        print(f"  Note {i+1}: note={note}, velocity={vel}, length={length:.1f}, position={pos:.1f}")
+                    
+                    print("\nFinal array:")
+                    print(midi_notes_array)
+                    
+                    # Process the notes using the record_notes_batch function
+                    record_notes_batch(midi_notes_array)
+                
+                event.handled = True
+                return
         
         # Check if we've received all expected notes
-        if len(midi_notes_array) >= note_count:
-            print(f"Received all {note_count} notes")
-            receiving_mode = False
+        # if len(midi_notes_array) >= note_count:
+        #     print(f"Received all {note_count} notes")
+        #     receiving_mode = False
             
-            # Print all collected notes
-            print(f"Collected {len(midi_notes_array)} notes:")
-            for i, (note, vel, length, pos) in enumerate(midi_notes_array):
-                print(f"  Note {i+1}: note={note}, velocity={vel}, length={length:.1f}, position={pos:.1f}")
+        #     # Print all collected notes
+        #     print(f"Collected {len(midi_notes_array)} notes:")
+        #     for i, (note, vel, length, pos) in enumerate(midi_notes_array):
+        #         print(f"  Note {i+1}: note={note}, velocity={vel}, length={length:.1f}, position={pos:.1f}")
             
-            print("\nFinal array:")
-            print(midi_notes_array)
+        #     print("\nFinal array:")
+        #     print(midi_notes_array)
 
-            record_notes_batch(midi_notes_array)
+        #     record_notes_batch(midi_notes_array)
             
-            # Process the notes here if needed
-            # record_notes_batch(midi_notes_array)
+        #     # Process the notes here if needed
+        #     # record_notes_batch(midi_notes_array)
         
-        event.handled = True
+        # event.handled = True
+        
 
 
     # elif note == 72:
