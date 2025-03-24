@@ -170,206 +170,101 @@ def process_received_midi(note, velocity):
 
 def OnMidiMsg(event, timestamp=0):
     """Called when a processed MIDI message is received"""
-    #print(f"MIDI Msg - Status: {event.status}, Data1: {event.data1}, Data2: {event.data2}")
     
-    global channel_to_edit, step_to_edit
-    global collecting_tempo_notes, tempo_note_array
-
-    global receiving_mode, midi_notes_array, message_count, messages_received
+    global receiving_mode, message_count, messages_received
     global current_note, current_velocity, current_length, current_position
-    global decimal_state, decimal_value, decimal_target
-
-    # Initialize global variables if they don't exist
+    global decimal_state, decimal_target, midi_notes_array
+    
     if 'receiving_mode' not in globals():
         global receiving_mode
         receiving_mode = False
-        
-    if 'message_count' not in globals():
-        global message_count
-        message_count = 0
-        
-    if 'messages_received' not in globals():
-        global messages_received
-        messages_received = 0
-        
+    
+    if 'note_count' not in globals():
+        global note_count
+        note_count = 0
+    
+    if 'values_received' not in globals():
+        global values_received
+        values_received = 0
+    
+    if 'midi_data' not in globals():
+        global midi_data
+        midi_data = []
+    
     if 'midi_notes_array' not in globals():
         global midi_notes_array
         midi_notes_array = []
-        
-    if 'current_note' not in globals():
-        global current_note, current_velocity, current_length, current_position
-        current_note = None
-        current_velocity = None
-        current_length = None
-        current_position = None
-        
-    if 'decimal_state' not in globals():
-        global decimal_state, decimal_target
-        decimal_state = 0
-        decimal_target = None
     
     # Only process Note On messages with velocity > 0
     if event.status >= midi.MIDI_NOTEON and event.status < midi.MIDI_NOTEON + 16 and event.data2 > 0:
-        note = event.data1
-        velocity = event.data2
+        note_value = event.data1
         
         # Toggle receiving mode with note 0
-        if note == 0 and not receiving_mode:
+        if note_value == 0 and not receiving_mode:
             receiving_mode = True
             print("Started receiving MIDI notes")
-            # Reset variables
+            midi_data = []
+            note_count = 0
+            values_received = 0
             midi_notes_array = []
-            message_count = 0
-            messages_received = 0
-            current_note = None
-            current_velocity = None
-            current_length = None
-            current_position = None
-            decimal_state = 0
-            decimal_target = None
-            event.handled = True
-            return
-        
-        # Get message count (next message after toggle)
-        elif receiving_mode and message_count == 0:
-            message_count = note
-            print(f"Expecting {message_count} MIDI messages")
             event.handled = True
             return
         
         # Only process further messages if in receiving mode
         if not receiving_mode:
             return
-            
-        # Count received messages
-        messages_received += 1
         
-        # Special MIDI commands
-        DECIMAL_MARKER = 100   # Indicates next value is a decimal part
-        LENGTH_MARKER = 101    # Next value affects length
-        POSITION_MARKER = 102  # Next value affects position
+        # Second message is the note count
+        if note_count == 0:
+            note_count = note_value
+            print(f"Expecting {note_count} notes")
+            event.handled = True
+            return
         
-        # Process based on message type
-        if note == DECIMAL_MARKER:
-            # Next value will be a decimal
-            decimal_state = 1
-            print("Decimal marker received")
-            
-        elif note == LENGTH_MARKER:
-            # Next value affects length
-            decimal_target = "length"
-            decimal_state = 0
-            print("Length marker received")
-            
-        elif note == POSITION_MARKER:
-            # Next value affects position
-            decimal_target = "position"
-            decimal_state = 0
-            print("Position marker received")
-            
-        elif decimal_state == 1:
-            # This is a decimal part value
-            decimal_value = note / 10.0  # Convert to decimal (0-9 becomes 0.0-0.9)
-            
-            # Apply to the correct parameter
-            if decimal_target == "length":
-                current_length = (current_length or 0) + decimal_value
-                print(f"Set length decimal: {current_length:.2f}")
-            elif decimal_target == "position":
-                current_position = (current_position or 0) + decimal_value
-                print(f"Set position decimal: {current_position:.2f}")
-                
-            decimal_state = 0
-            
-            # Check if we have a complete note after setting decimal
-            if (current_note is not None and 
-                current_velocity is not None and 
-                current_length is not None and 
-                current_position is not None and 
-                decimal_target == "position"):
-                
-                midi_notes_array.append((current_note, current_velocity, current_length, current_position))
-                print(f"Added note after decimal: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
-                # Keep track of current array size
-                print(f"Current array size: {len(midi_notes_array)}")
-                
-                # Reset for next note
-                current_note = None
-                current_velocity = None
-                current_length = None
-                current_position = None
-            
-        elif decimal_target is not None:
-            # This is a whole number part for a specific parameter
-            if decimal_target == "length":
-                current_length = float(note)
-                print(f"Set length whole: {current_length:.2f}")
-            elif decimal_target == "position":
-                current_position = float(note)
-                print(f"Set position whole: {current_position:.2f}")
-                
-                # Check if we have a complete note after setting position
-                # (only if there's no decimal part coming)
-                if (current_note is not None and 
-                    current_velocity is not None and 
-                    current_length is not None):
-                    
-                    # Check the next message - if it's not a decimal marker, add the note
-                    if messages_received < message_count - 1 and not (note == DECIMAL_MARKER):
-                        midi_notes_array.append((current_note, current_velocity, current_length, current_position))
-                        print(f"Added note after whole position: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
-                        # Keep track of current array size
-                        print(f"Current array size: {len(midi_notes_array)}")
-                        
-                        # Reset for next note
-                        current_note = None
-                        current_velocity = None
-                        current_length = None
-                        current_position = None
-            
-        else:
-            # This is a note value and velocity
-            # If we already have note data, add it first (shouldn't happen, but just in case)
-            if (current_note is not None and 
-                current_velocity is not None and 
-                current_length is not None and 
-                current_position is not None):
-                
-                midi_notes_array.append((current_note, current_velocity, current_length, current_position))
-                print(f"Added previous note before new note: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
-                # Keep track of current array size
-                print(f"Current array size: {len(midi_notes_array)}")
-            
-            # Set current note
-            current_note = note
-            current_velocity = velocity
-            print(f"Started new note: {current_note}, velocity: {current_velocity}")
+        # All subsequent messages are MIDI values (6 per note)
+        midi_data.append(note_value)
+        values_received += 1
         
-        # Check if we've received all expected messages
-        if messages_received >= message_count:
-            print("Received all expected MIDI messages")
+        # Process completed notes (every 6 values)
+        if len(midi_data) >= 6 and len(midi_data) % 6 == 0:
+            # Process the last complete note
+            i = len(midi_data) - 6
+            note = midi_data[i]
+            velocity = midi_data[i+1]
+            length_whole = midi_data[i+2]
+            length_decimal = midi_data[i+3]
+            position_whole = midi_data[i+4]
+            position_decimal = midi_data[i+5]
+            
+            # Calculate full values
+            length = length_whole + (length_decimal / 10.0)
+            position = position_whole + (position_decimal / 10.0)
+            
+            # Add to notes array
+            midi_notes_array.append((note, velocity, length, position))
+            print(f"Added note: note={note}, velocity={velocity}, length={length:.1f}, position={position:.1f}")
+            print(f"Current array size: {len(midi_notes_array)}")
+        
+        # Check if we've received all expected notes
+        if len(midi_notes_array) >= note_count:
+            print(f"Received all {note_count} notes")
             receiving_mode = False
-            
-            # Add final note if complete
-            if (current_note is not None and 
-                current_velocity is not None and 
-                current_length is not None and 
-                current_position is not None):
-                
-                midi_notes_array.append((current_note, current_velocity, current_length, current_position))
-                print(f"Added final note: {current_note}, velocity: {current_velocity}, length: {current_length:.2f}, position: {current_position:.2f}")
             
             # Print all collected notes
             print(f"Collected {len(midi_notes_array)} notes:")
             for i, (note, vel, length, pos) in enumerate(midi_notes_array):
-                print(f"  Note {i+1}: note={note}, velocity={vel}, length={length:.2f}, position={pos:.2f}")
+                print(f"  Note {i+1}: note={note}, velocity={vel}, length={length:.1f}, position={pos:.1f}")
             
             print("\nFinal array:")
             print(midi_notes_array)
 
+            record_notes_batch(midi_notes_array)
             
+            # Process the notes here if needed
+            # record_notes_batch(midi_notes_array)
         
         event.handled = True
+
 
     # elif note == 72:
     #         collecting_tempo_notes = True
@@ -591,244 +486,6 @@ def record_c_major_chord_in_tempo(length_beats=4.0, position_beats=0.0):
         transport.record()
     
     print(f"C major chord recorded to piano roll, length: {length_beats} beats")
-
-def add_hardcoded_melody():
-    """Add a predefined melody to the currently selected channel's piano roll"""
-    # Get the currently selected channel
-    channel = channels.selectedChannel()
-    
-    if channel < 0:
-        print("No channel selected. Please select a channel first.")
-        return
-    
-    # Get the project's PPQ (pulses per quarter note)
-    ppq = general.getRecPPQ()
-    print(f"Using PPQ value: {ppq}")
-    
-    # Define the melody as a sequence of [note, position_beats, length_beats]
-    # This is a simple C major ascending scale with quarter notes
-    melody = [
-        [60, 0.00, 0.5],  # C4, beat 1, quarter note
-        [62, 0.50, 0.5],  # D4, beat 1.5, quarter note
-        [64, 1.00, 0.5],  # E4, beat 2, quarter note
-        [65, 1.50, 0.5],  # F4, beat 2.5, quarter note
-        [67, 2.00, 0.5],  # G4, beat 3, quarter note
-        [69, 2.50, 0.5],  # A4, beat 3.5, quarter note
-        [71, 3.00, 0.5],  # B4, beat 4, quarter note
-        [72, 3.50, 0.5],  # C5, beat 4.5, quarter note
-        [72, 4.00, 1.0],  # C5, beat 5, half note
-        [71, 5.00, 0.5],  # B4, beat 6, quarter note
-        [69, 5.50, 0.5],  # A4, beat 6.5, quarter note
-        [67, 6.00, 0.5],  # G4, beat 7, quarter note
-        [65, 6.50, 0.5],  # F4, beat 7.5, quarter note
-        [64, 7.00, 0.5],  # E4, beat 8, quarter note
-        [62, 7.50, 0.5],  # D4, beat 8.5, quarter note
-        [60, 8.00, 1.0],  # C4, beat 9, half note
-    ]
-    
-    # Add each note to the piano roll
-    print(f"Adding melody to channel {channel}...")
-    for note_data in melody:
-        note, position, length = note_data
-        
-        # Convert beats to ticks
-        position_ticks = int(position * ppq)
-        length_ticks = int(length * ppq)
-        
-        # Default values
-        velocity = 100  # 0-127 range
-        pan = 64        # 0-127 range (64 is centered)
-        
-        # Add the note to the piano roll
-        channels.addNote(channel, position_ticks, length_ticks, note, velocity, pan)
-        print(f"Added note {note} at position {position} beats (tick {position_ticks}), length {length} beats (tick {length_ticks})")
-    
-    # Force refresh of the piano roll
-    ui.setFocused(midi.widPianoRoll)
-    print("Melody added successfully!")
-
-def record_c_major_progression(chord_length_beats=1.0):
-    """
-    Records a I-IV-V-I chord progression in C major to the piano roll
-    using tick-based timing for precise musical timing
-    
-    Args:
-        chord_length_beats (float): Length of each chord in beats (default: 4.0 = whole note)
-    """
-    # Get the current channel
-    channel = channels.selectedChannel()
-    
-    # Get the project's PPQ (pulses per quarter note)
-    ppq = general.getRecPPQ()
-    
-    # Define the chord progression (C major, F major, G major, C major)
-    progression = [
-        [60, 64, 67],  # I (C major: C-E-G)
-        [65, 69, 72],  # IV (F major: F-A-C)
-        [67, 71, 74],  # V (G major: G-B-D)
-        [60, 64, 67]   # I (C major: C-E-G)
-    ]
-    
-    # Calculate ticks for note length
-    chord_length_ticks = int(chord_length_beats * ppq)
-    
-    # Stop playback and recording if active
-    if transport.isPlaying():
-        transport.stop()
-    
-    # Reset playback position to beginning before recording
-    transport.setSongPos(0, 2)  # Set position to 0 ticks
-    
-    # Enable recording mode if not already active
-    if not transport.isRecording():
-        transport.record()
-    
-    print(f"Recording I-IV-V-I chord progression in C major, each chord: {chord_length_beats} beats")
-    
-    # Start playback - this begins recording
-    transport.start()
-    
-    # For each chord in the progression
-    for chord_index, chord in enumerate(progression):
-        # Get current position as the chord start position
-        chord_start_pos = transport.getSongPos(2)
-        chord_end_pos = chord_start_pos + chord_length_ticks
-        
-        print(f"Playing chord {chord_index + 1} of 4: {chord}")
-        
-        # Play the chord notes
-        for note in chord:
-            channels.midiNoteOn(channel, note, 100)
-        
-        # Wait until we reach the exact end position based on ticks
-        last_pos = chord_start_pos
-        
-        while transport.isPlaying():
-            current_pos = transport.getSongPos(2)
-            
-            # Wait until position changes before checking again
-            # This is much more efficient than sleeping
-            if current_pos > last_pos:
-                last_pos = current_pos
-                
-                # If we've reached or passed the end position, stop this chord
-                if current_pos >= chord_end_pos:
-                    break
-        
-        # Send note-off events at exactly the right tick position
-        for note in chord:
-            channels.midiNoteOn(channel, note, 0)
-        
-        print(f"Stopped chord {chord_index + 1} of 4 at tick position {current_pos}")
-    
-    # Stop playback and recording
-    transport.stop()
-    
-    # Exit recording mode
-    if transport.isRecording():
-        transport.record()
-    
-    # Reset playback position to beginning again
-    transport.setSongPos(0, 2)
-    
-    print("I-IV-V-I chord progression recorded to piano roll")
-
-
-def rec(length_beats=4.0, position_beats=0.0, quantize=True):
-    """
-    Records a C major chord to the piano roll synced with project tempo
-    
-    Args:
-        length_beats (float): Length of chord in beats (1.0 = quarter note)
-        position_beats (float): Position to place chord in beats from start
-        quantize (bool): Whether to quantize the recording afterward
-    """
-    # Make sure transport is stopped first
-    if transport.isPlaying():
-        transport.stop()
-    
-    # Get the current channel
-    channel = channels.selectedChannel()
-    
-    # Get the project's PPQ (pulses per quarter note)
-    ppq = general.getRecPPQ()
-    
-    # Calculate ticks based on beats
-    length_ticks = int(length_beats * ppq)
-    position_ticks = int(position_beats * ppq)
-    
-    # Set playback position
-    transport.setSongPos(position_ticks, 2)  # 2 = SONGLENGTH_ABSTICKS
-    
-    # Toggle recording mode if needed
-    if not transport.isRecording():
-        transport.record()
-    
-    print(f"Recording C major chord to channel {channel}")
-    print(f"Position: {position_beats} beats, Length: {length_beats} beats")
-    
-    # Calculate the exact tick positions where we need to place notes and note-offs
-    start_tick = position_ticks
-    end_tick = start_tick + length_ticks
-    
-    # Start playback to begin recording
-    transport.start()
-    
-    # Small delay to ensure transport is actually running
-    #time.sleep(0.1)
-    
-    # Record the notes at the exact start position
-    channels.midiNoteOn(channel, 60, 100)  # C
-    channels.midiNoteOn(channel, 64, 100)  # E
-    channels.midiNoteOn(channel, 67, 100)  # G
-    
-    # Get the current tempo (BPM)
-    # We'll get this using the general module instead
-    tempo = general.getRecPPQ() / 24  # This approximates the tempo value
-    # Calculate the time to wait in seconds
-    # Length in beats / (tempo / 60) = seconds
-    seconds_to_wait = (length_beats * 60) / tempo  # Using 120 BPM as default
-    
-    # If possible, try to get actual tempo from the project
-    try:
-        # Check if mixer.getCurrentTempo exists (some versions have this)
-        import mixer
-        tempo = mixer.getCurrentTempo()
-        tempo = tempo/1000
-        seconds_to_wait = (length_beats * 60) / tempo
-        print(f"Using project tempo: {tempo} BPM")
-    except (ImportError, AttributeError):
-        print("Using default tempo: 120 BPM")
-    
-    # Add a small buffer to ensure we capture the entire recording
-    #seconds_to_wait += 0.1
-    
-    print(f"Waiting for {seconds_to_wait:.2f} seconds...")
-    
-    # Wait the calculated time
-    time.sleep(seconds_to_wait)
-    
-    # Send note-off events
-    channels.midiNoteOn(channel, 60, 0)  # C off
-    channels.midiNoteOn(channel, 64, 0)  # E off
-    channels.midiNoteOn(channel, 67, 0)  # G off
-    
-    # Stop playback
-    transport.stop()
-    
-    # Exit recording mode if it was active
-    if transport.isRecording():
-        transport.record()
-    
-    # Quantize if requested
-    if quantize:
-        channels.quickQuantize(channel)
-        print("Recording quantized")
-    
-    print(f"C major chord recorded to piano roll")
-    
-    # Return to beginning
-    transport.setSongPos(0, 2)
 
 def record_note(note=60, velocity=100, length_beats=1.0, position_beats=0.0, quantize=True):
     """
@@ -1249,120 +906,6 @@ def rec_melody():
     record_notes_batch(melody)
     
     print("Melody recording complete!")
-
-def record_50s_progression():
-    """Records a 4-bar chord progression commonly used in 50s music (I-VI-IV-V)"""
-    
-    # Define the 50s progression in C: I-VI-IV-V
-    fifties_progression = [
-        {'name': 'C Major (I)', 'notes': [60, 64, 67]},       # C-E-G
-        {'name': 'A Minor (VI)', 'notes': [57, 60, 64]},      # A-C-E
-        {'name': 'F Major (IV)', 'notes': [53, 57, 60]},      # F-A-C
-        {'name': 'G Major (V)', 'notes': [55, 59, 62]},       # G-B-D
-    ]
-    
-    # Record the progression with 4 beats per chord
-    record_chord_progression(fifties_progression, beats_per_chord=4.0)
-
-def record_chord_progression(chord_progression, beats_per_chord=4.0, quantize=True):
-    """
-    Records a chord progression to the piano roll
-    
-    Args:
-        chord_progression (list): List of chord dictionaries with note values
-        beats_per_chord (float): Length of each chord in beats
-        quantize (bool): Whether to quantize the recording
-    """
-    # Define common chord structures (if needed as a reference)
-    chord_types = {
-        'major': [0, 4, 7],       # Root, Major 3rd, Perfect 5th
-        'minor': [0, 3, 7],       # Root, Minor 3rd, Perfect 5th
-        'diminished': [0, 3, 6],  # Root, Minor 3rd, Diminished 5th
-        'augmented': [0, 4, 8],   # Root, Major 3rd, Augmented 5th
-        '7': [0, 4, 7, 10],       # Root, Major 3rd, Perfect 5th, Minor 7th
-        'maj7': [0, 4, 7, 11],    # Root, Major 3rd, Perfect 5th, Major 7th
-        'm7': [0, 3, 7, 10],      # Root, Minor 3rd, Perfect 5th, Minor 7th
-    }
-    
-    # Ensure transport is stopped first
-    if transport.isPlaying():
-        transport.stop()
-    
-    # Exit recording mode if needed to start fresh
-    if transport.isRecording():
-        transport.record()
-    
-    # Get the current channel
-    channel = channels.selectedChannel()
-    
-    # Get the project's PPQ (pulses per quarter note)
-    ppq = general.getRecPPQ()
-    
-    # Turn on recording
-    if not transport.isRecording():
-        transport.record()
-    
-    print(f"Recording {len(chord_progression)} chord progression")
-    
-    # Try to get actual tempo
-    tempo = general.getRecPPQ() / 24   # Default fallback
-    try:
-        tempo = mixer.getCurrentTempo()
-        tempo = tempo/1000
-        print(f"Project tempo: {tempo} BPM")
-    except:
-        print(f"Using default tempo: {tempo} BPM")
-    
-    # Process each chord
-    for i, chord in enumerate(chord_progression):
-        # Calculate position in beats
-        position_beats = i * beats_per_chord
-        
-        # Set playback position
-        position_ticks = int(position_beats * ppq)
-        transport.setSongPos(position_ticks, 2)
-        
-        # Start playback to begin recording
-        transport.start()
-        
-        # Small delay to ensure transport is actually running
-        #time.sleep(0.1)
-        
-        # Play the notes for this chord
-        for note in chord['notes']:
-            channels.midiNoteOn(channel, note, 100)  # Note on with velocity 100
-        
-        # Calculate the time to wait in seconds
-        seconds_to_wait = (beats_per_chord * 60) / tempo
-        
-        # Add a small buffer
-        #seconds_to_wait += 0.1
-        
-        print(f"Recording chord {i+1}/{len(chord_progression)}: {chord['name']} at position {position_beats} beats")
-        
-        # Wait the calculated time
-        time.sleep(seconds_to_wait)
-        
-        # Turn off the notes
-        for note in chord['notes']:
-            channels.midiNoteOn(channel, note, 0)  # Note off
-        
-        # Stop playback
-        transport.stop()
-    
-    # Exit recording mode
-    if transport.isRecording():
-        transport.record()
-    
-    # Quantize if requested
-    if quantize:
-        channels.quickQuantize(channel)
-        print("Chord progression quantized")
-    
-    # Return to beginning
-    transport.setSongPos(0, 2)
-    
-    print(f"Chord progression recorded successfully")
     
 def change_tempo_from_notes(note_array):
     """
@@ -1388,347 +931,6 @@ def change_tempo_from_notes(note_array):
     change_tempo(bpm_value)
     
     return bpm_value
-
-
-def process_command(command):
-    """Process a command entered in the terminal"""
-    cmd_parts = command.strip().split()
-    
-    if not cmd_parts:
-        return
-    
-    cmd = cmd_parts[0].lower()
-    args = cmd_parts[1:]
-    
-    # Help command
-    if cmd == "help":
-        show_help()
-    
-    # Project commands
-    elif cmd == "new":
-        ui.new()
-        print("Created new project")
-    elif cmd == "save":
-        ui.saveNew()
-        print("Project saved")
-    elif cmd == "bpm":
-        if args:
-            try:
-                new_tempo = float(args[0])
-                transport.setTempo(new_tempo)
-                print(f"Tempo set to {new_tempo} BPM")
-            except ValueError:
-                print("Invalid tempo value")
-        else:
-            current_tempo = mixer.getTempo()
-            print(f"Current tempo: {current_tempo} BPM")
-    
-    # Transport commands
-    elif cmd == "play":
-        transport.start()
-        print("Playback started")
-    elif cmd == "stop":
-        transport.stop()
-        print("Playback stopped")
-    elif cmd == "record":
-        transport.record()
-        print("Recording started")
-    elif cmd == "loop":
-        toggle = args[0].lower() if args else "toggle"
-        if toggle == "on":
-            transport.setLoopMode(1)
-            print("Loop mode enabled")
-        elif toggle == "off":
-            transport.setLoopMode(0)
-            print("Loop mode disabled")
-        else:
-            current = transport.getLoopMode()
-            transport.setLoopMode(0 if current else 1)
-            print(f"Loop mode {'enabled' if not current else 'disabled'}")
-    
-    # Pattern commands
-    elif cmd == "pattern":
-        if not args:
-            print(f"Current pattern: {patterns.patternNumber()}")
-            return
-            
-        subcmd = args[0].lower()
-        if subcmd == "new":
-            new_pattern = patterns.findFirstEmpty()
-            patterns.jumpTo(new_pattern)
-            print(f"Created and selected pattern {new_pattern}")
-        elif subcmd == "select":
-            if len(args) > 1:
-                try:
-                    pattern_num = int(args[1])
-                    patterns.jumpTo(pattern_num)
-                    print(f"Selected pattern {pattern_num}")
-                except ValueError:
-                    print("Invalid pattern number")
-            else:
-                print("Please specify a pattern number")
-        elif subcmd == "clone":
-            if len(args) > 1:
-                try:
-                    source_pattern = int(args[1])
-                    new_pattern = patterns.findFirstEmpty()
-                    patterns.copyPattern(source_pattern, new_pattern)
-                    patterns.jumpTo(new_pattern)
-                    print(f"Cloned pattern {source_pattern} to {new_pattern}")
-                except ValueError:
-                    print("Invalid pattern number")
-            else:
-                source_pattern = patterns.patternNumber()
-                new_pattern = patterns.findFirstEmpty()
-                patterns.copyPattern(source_pattern, new_pattern)
-                patterns.jumpTo(new_pattern)
-                print(f"Cloned current pattern to {new_pattern}")
-        elif subcmd == "length":
-            if len(args) > 1:
-                try:
-                    beats = int(args[1])
-                    patterns.setPatternLength(beats)
-                    print(f"Set pattern length to {beats} beats")
-                except ValueError:
-                    print("Invalid beat count")
-            else:
-                print(f"Current pattern length: {patterns.getPatternLength()} beats")
-        elif subcmd == "refresh":
-            # Force refresh the current pattern
-            commit_pattern_changes()
-            print("Pattern refreshed")
-    
-    # Channel commands
-    elif cmd == "channel":
-        if not args:
-            print(f"Current channel: {channels.selectedChannel()}")
-            return
-            
-        subcmd = args[0].lower()
-        if subcmd == "select":
-            if len(args) > 1:
-                try:
-                    channel_num = int(args[1])
-                    channels.selectOneChannel(channel_num)
-                    print(f"Selected channel {channel_num}")
-                except ValueError:
-                    print("Invalid channel number")
-            else:
-                print("Please specify a channel number")
-        elif subcmd == "add":
-            if len(args) > 1:
-                preset_type = args[1].lower()
-                if preset_type == "sampler":
-                    new_channel = channels.addChannel(channels.CH_Sampler)
-                elif preset_type == "plugin":
-                    new_channel = channels.addChannel(channels.CH_Plugin)
-                else:
-                    new_channel = channels.addChannel()
-                print(f"Added new channel {new_channel}")
-                channels.selectOneChannel(new_channel)
-            else:
-                new_channel = channels.addChannel()
-                print(f"Added new channel {new_channel}")
-                channels.selectOneChannel(new_channel)
-        elif subcmd == "name":
-            if len(args) > 1:
-                name = " ".join(args[1:])
-                channel = channels.selectedChannel()
-                channels.setChannelName(channel, name)
-                print(f"Renamed channel {channel} to '{name}'")
-            else:
-                channel = channels.selectedChannel()
-                name = channels.getChannelName(channel)
-                print(f"Channel {channel} name: '{name}'")
-    
-    # Note commands
-    elif cmd == "note":
-        if len(args) >= 3:
-            try:
-                note_name = args[0].upper()
-                position = float(args[1])
-                length = float(args[2])
-                
-                # Convert note name to MIDI note number
-                note_map = {"C": 60, "D": 62, "E": 64, "F": 65, "G": 67, "A": 69, "B": 71}
-                base_note = note_map.get(note_name[0], 60)
-                
-                # Apply sharp/flat
-                if len(note_name) > 1:
-                    if note_name[1] == "#":
-                        base_note += 1
-                    elif note_name[1] == "B":
-                        base_note -= 1
-                
-                # Apply octave
-                if len(note_name) > 1 and note_name[-1].isdigit():
-                    octave = int(note_name[-1])
-                    base_note = (octave * 12) + (base_note % 12)
-                
-                # Add note
-                pattern = patterns.patternNumber()
-                channel = channels.selectedChannel()
-                velocity = 100  # Default velocity
-                
-                if len(args) > 3:
-                    try:
-                        velocity = int(args[3])
-                    except ValueError:
-                        pass
-                
-                # Calculate position in PPQ
-                ppq = general.getRecPPQ()
-                pos_ticks = int(position * ppq)
-                length_ticks = int(length * ppq)
-                
-                # Add the note
-                note_index = channels.addNote(channel, pos_ticks, length_ticks, base_note, velocity, 0)
-                print(f"Added note {note_name} at position {position}, length {length}, velocity {velocity} with index {note_index}")
-                
-                # Force pattern refresh
-                commit_pattern_changes()
-            except ValueError:
-                print("Invalid note parameters. Format: note [name] [position] [length] [velocity]")
-        else:
-            print("Insufficient parameters. Format: note [name] [position] [length] [velocity]")
-    
-    # Playlist commands
-    elif cmd == "playlist":
-        if not args:
-            print("Please specify a playlist subcommand")
-            return
-            
-        subcmd = args[0].lower()
-        if subcmd == "add":
-            if len(args) > 1:
-                try:
-                    pattern_num = int(args[1])
-                    position = float(args[2]) if len(args) > 2 else 1
-                    track = int(args[3]) if len(args) > 3 else 0
-                    
-                    # Calculate position in PPQ
-                    ppq = general.getRecPPQ()
-                    pos_ticks = int(position * ppq * 4)  # Convert bars to ticks
-                    
-                    playlist.addPattern(pattern_num, pos_ticks, track)
-                    playlist.refresh()  # Force playlist to update
-                    print(f"Added pattern {pattern_num} at position {position} on track {track}")
-                except ValueError:
-                    print("Invalid parameters. Format: playlist add [pattern] [position] [track]")
-            else:
-                print("Please specify a pattern number")
-        elif subcmd == "clear":
-            playlist.clearPlaylist()
-            print("Cleared playlist")
-            playlist.refresh()  # Force playlist to update
-        elif subcmd == "refresh":
-            playlist.refresh()
-            print("Playlist refreshed")
-    
-    # Mixer commands
-    elif cmd == "mixer":
-        if not args:
-            print(f"Current mixer track: {mixer.trackNumber()}")
-            return
-            
-        subcmd = args[0].lower()
-        if subcmd == "select":
-            if len(args) > 1:
-                try:
-                    track_num = int(args[1])
-                    mixer.setTrackNumber(track_num)
-                    print(f"Selected mixer track {track_num}")
-                except ValueError:
-                    print("Invalid track number")
-            else:
-                print("Please specify a track number")
-        elif subcmd == "volume":
-            if len(args) > 1:
-                try:
-                    volume = float(args[1])  # 0.0 to 1.0
-                    track = mixer.trackNumber()
-                    mixer.setTrackVolume(track, volume)
-                    print(f"Set mixer track {track} volume to {volume}")
-                except ValueError:
-                    print("Invalid volume value (0.0 to 1.0)")
-            else:
-                track = mixer.trackNumber()
-                volume = mixer.getTrackVolume(track)
-                print(f"Mixer track {track} volume: {volume}")
-                
-    # Command to force UI refresh
-    elif cmd == "refresh":
-        ui.crDisplayRect()
-        playlist.refresh()
-        print("UI refreshed")
-    
-    # Command to save the project
-    elif cmd == "save":
-        ui.saveNew()
-        print("Project saved")
-    
-    # Quit command
-    elif cmd in ["quit", "exit"]:
-        print("Exiting terminal interface...")
-        global running
-        running = False
-    
-    # Unknown command
-    else:
-        print(f"Unknown command: {cmd}")
-        print("Type 'help' for a list of commands")
-    
-
-
-def show_help():
-    """Display help information"""
-    help_text = """
-FL STUDIO TERMINAL BEAT BUILDER COMMANDS
-
-PROJECT COMMANDS:
-  new                  - Create a new project
-  save                 - Save the current project
-  bpm [tempo]          - Get or set the project tempo
-  refresh              - Force UI refresh
-
-TRANSPORT COMMANDS:
-  play                 - Start playback
-  stop                 - Stop playback
-  record               - Start recording
-  loop [on|off|toggle] - Control loop mode
-
-PATTERN COMMANDS:
-  pattern              - Show current pattern
-  pattern new          - Create a new pattern
-  pattern select [num] - Select a pattern
-  pattern clone [num]  - Clone a pattern
-  pattern length [beats] - Set/get pattern length
-  pattern refresh      - Force pattern refresh
-
-CHANNEL COMMANDS:
-  channel              - Show current channel
-  channel select [num] - Select a channel
-  channel add [type]   - Add new channel (sampler, plugin)
-  channel name [name]  - Set/get channel name
-
-NOTE COMMANDS:
-  note [name] [pos] [len] [vel] - Add a note (e.g., note C4 0 1 100)
-
-PLAYLIST COMMANDS:
-  playlist add [pat] [pos] [track] - Add pattern to playlist
-  playlist clear                   - Clear playlist
-  playlist refresh                 - Force playlist refresh
-
-MIXER COMMANDS:
-  mixer                - Show current mixer track
-  mixer select [num]   - Select a mixer track
-  mixer volume [val]   - Set/get mixer track volume
-
-GENERAL COMMANDS:
-  help                 - Show this help
-  quit/exit            - Exit terminal interface
-"""
-    print(help_text)
 
 # Start the terminal interface when loaded in FL Studio
 # No need to call this explicitly as OnInit will be called by FL Studio
