@@ -6,7 +6,7 @@ from mido import Message
 import time
 
 # Initialize FastMCP server
-mcp = FastMCP("weather")
+mcp = FastMCP("flstudio")
 output_port = mido.open_output('loopMIDI Port 2') 
 
 # MIDI Note mappings for FL Studio commands
@@ -22,7 +22,7 @@ NOTE_NAME_CHANNEL = 68  # G#3
 NOTE_ADD_NOTE = 69      # A3
 NOTE_ADD_TO_PLAYLIST = 70  # A#3
 NOTE_SET_PATTERN_LEN = 71  # B3
-NOTE_CHANGE_TEMPO = 72 
+NOTE_CHANGE_TEMPO = 72   
 
 # Define custom MIDI CC messages for direct step sequencer grid control
 CC_SELECT_CHANNEL = 100  # Select which channel to edit
