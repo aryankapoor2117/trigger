@@ -485,16 +485,16 @@ def send_melody(notes_data):
 
 # Send a MIDI note message
 @mcp.tool()
-def send_midi_note(note, velocity=1, duration=0.1):
+def send_midi_note(note, velocity=1, duration=0.01):
     """Send a MIDI note on/off message with specified duration"""
     note_on = Message('note_on', note=note, velocity=velocity)
     output_port.send(note_on)
-    print(f"Sent MIDI note {note} (on), velocity {velocity}")
+    #print(f"Sent MIDI note {note} (on), velocity {velocity}")
     time.sleep(duration)
     note_off = Message('note_off', note=note, velocity=0)
     output_port.send(note_off)
     print(f"Sent MIDI note {note} (off)")
-    time.sleep(0.1)  # Small pause between messages
+    #time.sleep(0.1)  # Small pause between messages
 
 # Send a MIDI CC message
 @mcp.tool()
